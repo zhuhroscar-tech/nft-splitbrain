@@ -28,9 +28,9 @@ jobs:
         run: |
           nft-splitbrain --version
           nft-splitbrain --help
-          sudo nft-splitbrain --json > /tmp/report.json || true
+          sudo "$(command -v nft-splitbrain)" --json > /tmp/report.json || true
           python -m json.tool < /tmp/report.json
-          sudo nft-splitbrain || true
+          sudo "$(command -v nft-splitbrain)" || true
 
   build-artifact:
     name: Build .pyz + sdist/wheel and smoke-test on Linux
