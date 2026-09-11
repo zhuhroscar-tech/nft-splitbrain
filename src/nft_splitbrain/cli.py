@@ -7,6 +7,7 @@ import sys
 
 from . import __version__
 from .core import diagnose_host, STATUS_OK, STATUS_NO_BACKEND_FOUND
+from .style import resolve_style, status_headline
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,11 +22,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    p.add_argument("--no-color", action="store_true", help="Disable colored output.")
     return p
 
 
-def _print_text(report) -> None:
-    print(f"Status: {report.status}")
+def _print_text(report, style) -> None:
+    level = "ok" if report.status in (STATUS_OK, STATUS_NO_BACKEND_FOUND) else "fail"
+    print(status_headline(style, level, report.status))
     print(report.explanation)
     if report.reported_mode:
         print(f"  iptables --version reports: {report.reported_mode}")
@@ -46,7 +49,8 @@ def main(argv=None) -> int:
     if args.json:
         print(json.dumps(report.to_dict(), indent=2))
     else:
-        _print_text(report)
+        style = resolve_style(no_color_flag=args.no_color)
+        _print_text(report, style)
 
     if report.status in (STATUS_OK, STATUS_NO_BACKEND_FOUND):
         return 0
