@@ -39,6 +39,8 @@ security smells, not for backend divergence on the live host.
 
 ## What this does
 
+![nft-splitbrain example output](docs/images/example-output.png)
+
 ```
 $ nft-splitbrain
 
