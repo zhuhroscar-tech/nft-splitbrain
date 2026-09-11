@@ -44,6 +44,7 @@ STATUS_ALTERNATIVES_MISMATCH = "alternatives_version_mismatch"
 STATUS_HIDDEN_LEGACY_RULES = "hidden_legacy_rules"
 STATUS_HIDDEN_NFT_RULES = "hidden_nft_rules"
 STATUS_NO_BACKEND_FOUND = "no_backend_found"
+STATUS_CANNOT_VERIFY_HIDDEN_RULES = "cannot_verify_hidden_rules_permission_denied"
 
 STATUS_EXPLANATIONS = {
     STATUS_OK: (
@@ -78,6 +79,14 @@ STATUS_EXPLANATIONS = {
         "Neither 'iptables' nor 'nft' appears to be installed or usable on "
         "this host -- nothing to diagnose."
     ),
+    STATUS_CANNOT_VERIFY_HIDDEN_RULES: (
+        "This check needs to inspect the *other*, currently-unselected "
+        "backend for hidden rules, but that command failed with a "
+        "permission error (it needs root/CAP_NET_ADMIN). This is different "
+        "from 'no hidden rules were found': the host has NOT actually been "
+        "verified clean -- re-run as root (e.g. with sudo) to get a real "
+        "answer instead of a false 'ok'."
+    ),
 }
 
 
@@ -88,6 +97,43 @@ def run(cmd: list, timeout: int = 15) -> str:
         return result.stdout or ""
     except (OSError, subprocess.SubprocessError):
         return ""
+
+
+def run_capture(cmd: list, timeout: int = 15):
+    """Run a read-only subprocess command, returning (stdout, stderr, returncode).
+
+    Unlike `run`, this preserves stderr and the exit status so callers can
+    tell "the command ran and truly produced no output" apart from "the
+    command failed" -- needed to distinguish a genuinely empty ruleset from
+    a permission-denied failure that produces the same empty stdout.
+    On OSError/SubprocessError (binary missing, timeout, etc.) returns
+    ("", "", None).
+    """
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        return result.stdout or "", result.stderr or "", result.returncode
+    except (OSError, subprocess.SubprocessError):
+        return "", "", None
+
+
+_PERMISSION_DENIED_RE = re.compile(
+    r"permission denied|operation not permitted|must be run as root|"
+    r"requires (root|superuser|cap_net_admin)|are you root|"
+    r"you must be root",
+    re.IGNORECASE,
+)
+
+
+def _is_permission_denied(stderr: str, returncode) -> bool:
+    """Best-effort detection that a *-save/list-ruleset command failed
+    because we lack privilege, not because the backend genuinely holds
+    zero rules. Requires both a non-zero/unknown exit and a recognizable
+    permission-related message in stderr."""
+    if returncode == 0:
+        return False
+    if not stderr:
+        return False
+    return bool(_PERMISSION_DENIED_RE.search(stderr))
 
 
 def which(cmd: str, runner=run) -> bool:
@@ -125,17 +171,27 @@ def get_alternatives_mode(binary: str, runner=run) -> Optional[str]:
     return None
 
 
-def count_ruleset_lines(cmd: list, runner=run) -> int:
+def count_ruleset_lines(cmd: list, runner=run_capture):
     """Count non-empty, non-comment lines in a `*-save`/`nft list ruleset`
-    style dump -- a simple proxy for "are there rules here"."""
-    out = runner(cmd)
+    style dump -- a simple proxy for "are there rules here".
+
+    Returns (count, permission_denied). When the underlying command fails
+    because of insufficient privilege (common: iptables-legacy-save and
+    `nft list ruleset` both require root/CAP_NET_ADMIN), returns
+    (None, True) instead of silently reporting 0 -- a 0 here previously
+    meant "genuinely empty" and "couldn't even check" identically, which
+    hides a real blind spot from the operator instead of reporting it.
+    """
+    stdout, stderr, returncode = runner(cmd)
+    if _is_permission_denied(stderr, returncode):
+        return None, True
     count = 0
-    for line in out.splitlines():
+    for line in stdout.splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
         count += 1
-    return count
+    return count, False
 
 
 @dataclass
@@ -146,6 +202,7 @@ class SplitBrainReport:
     alternatives_mode: Optional[str] = None
     legacy_rule_lines: Optional[int] = None
     nft_rule_lines: Optional[int] = None
+    permission_denied: bool = False
     details: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -156,6 +213,7 @@ class SplitBrainReport:
             "alternatives_mode": self.alternatives_mode,
             "legacy_rule_lines": self.legacy_rule_lines,
             "nft_rule_lines": self.nft_rule_lines,
+            "permission_denied": self.permission_denied,
             "details": list(self.details),
         }
 
@@ -167,12 +225,16 @@ def diagnose(
     alternatives_mode: Optional[str],
     legacy_rule_lines: Optional[int],
     nft_rule_lines: Optional[int],
+    legacy_permission_denied: bool = False,
+    nft_permission_denied: bool = False,
 ) -> SplitBrainReport:
     """Classify the host's iptables/nftables backend state.
 
     Priority: no backend found; then alternatives/self-report mismatch
     (most surprising -- inspection tools disagree about ground truth);
-    then hidden rules in the unselected backend; else ok.
+    then hidden rules in the unselected backend; then "couldn't verify
+    hidden rules due to permission error" (must not be silently reported
+    as ok); else ok.
     """
     details = []
 
@@ -227,6 +289,22 @@ def diagnose(
             details=details,
         )
 
+    if (active_mode == "nft" and legacy_permission_denied) or (
+        active_mode == "legacy" and nft_permission_denied
+    ):
+        checked = "iptables-legacy-save" if active_mode == "nft" else "nft list ruleset"
+        details.append(f"'{checked}' failed with a permission error -- run as root to verify.")
+        return SplitBrainReport(
+            status=STATUS_CANNOT_VERIFY_HIDDEN_RULES,
+            explanation=STATUS_EXPLANATIONS[STATUS_CANNOT_VERIFY_HIDDEN_RULES],
+            reported_mode=reported_mode,
+            alternatives_mode=alternatives_mode,
+            legacy_rule_lines=legacy_rule_lines,
+            nft_rule_lines=nft_rule_lines,
+            permission_denied=True,
+            details=details,
+        )
+
     return SplitBrainReport(
         status=STATUS_OK,
         explanation=STATUS_EXPLANATIONS[STATUS_OK],
@@ -237,7 +315,7 @@ def diagnose(
     )
 
 
-def diagnose_host(runner=run) -> SplitBrainReport:
+def diagnose_host(runner=run, capture_runner=run_capture) -> SplitBrainReport:
     iptables_available = which("iptables", runner=runner)
     nft_available = which("nft", runner=runner)
 
@@ -247,11 +325,17 @@ def diagnose_host(runner=run) -> SplitBrainReport:
     active_mode = reported_mode or alternatives_mode
     legacy_rule_lines = None
     nft_rule_lines = None
+    legacy_permission_denied = False
+    nft_permission_denied = False
 
     if active_mode == "nft" and which("iptables-legacy", runner=runner):
-        legacy_rule_lines = count_ruleset_lines(["iptables-legacy-save"], runner=runner)
+        legacy_rule_lines, legacy_permission_denied = count_ruleset_lines(
+            ["iptables-legacy-save"], runner=capture_runner
+        )
     if active_mode == "legacy" and nft_available:
-        nft_rule_lines = count_ruleset_lines(["nft", "list", "ruleset"], runner=runner)
+        nft_rule_lines, nft_permission_denied = count_ruleset_lines(
+            ["nft", "list", "ruleset"], runner=capture_runner
+        )
 
     return diagnose(
         iptables_available=iptables_available,
@@ -260,4 +344,6 @@ def diagnose_host(runner=run) -> SplitBrainReport:
         alternatives_mode=alternatives_mode,
         legacy_rule_lines=legacy_rule_lines,
         nft_rule_lines=nft_rule_lines,
+        legacy_permission_denied=legacy_permission_denied,
+        nft_permission_denied=nft_permission_denied,
     )

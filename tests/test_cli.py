@@ -3,7 +3,12 @@ import json
 import pytest
 
 from nft_splitbrain.cli import main
-from nft_splitbrain.core import SplitBrainReport, STATUS_ALTERNATIVES_MISMATCH, STATUS_OK
+from nft_splitbrain.core import (
+    SplitBrainReport,
+    STATUS_ALTERNATIVES_MISMATCH,
+    STATUS_CANNOT_VERIFY_HIDDEN_RULES,
+    STATUS_OK,
+)
 
 
 def _fake_report(status=STATUS_ALTERNATIVES_MISMATCH):
@@ -45,3 +50,19 @@ def test_ok_returns_zero(monkeypatch, capsys):
     )
     rc = main([])
     assert rc == 0
+
+
+def test_permission_denied_returns_nonzero_and_warns(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "nft_splitbrain.cli.diagnose_host",
+        lambda: SplitBrainReport(
+            status=STATUS_CANNOT_VERIFY_HIDDEN_RULES,
+            explanation="cannot verify",
+            permission_denied=True,
+            details=["'iptables-legacy-save' failed with a permission error -- run as root to verify."],
+        ),
+    )
+    rc = main([])
+    out = capsys.readouterr().out
+    assert "re-run as root" in out
+    assert rc == 2

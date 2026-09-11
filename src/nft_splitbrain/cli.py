@@ -38,6 +38,8 @@ def _print_text(report, style) -> None:
         print(f"  iptables-legacy-save rule lines: {report.legacy_rule_lines}")
     if report.nft_rule_lines is not None:
         print(f"  nft list ruleset rule lines: {report.nft_rule_lines}")
+    if report.permission_denied:
+        print("  warning: could not verify -- re-run as root/sudo for a real answer")
     for d in report.details:
         print(f"  - {d}")
 
