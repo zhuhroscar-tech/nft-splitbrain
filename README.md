@@ -1,7 +1,22 @@
 # nft-splitbrain
 
+[![CI](https://github.com/zhuhroscar-tech/nft-splitbrain/actions/workflows/ci.yml/badge.svg)](https://github.com/zhuhroscar-tech/nft-splitbrain/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/zhuhroscar-tech/nft-splitbrain?include_prereleases&label=release)](https://github.com/zhuhroscar-tech/nft-splitbrain/releases)
+![Linux](https://img.shields.io/badge/platform-Linux-111111?logo=linux)
+
 Detect `iptables-legacy` / `iptables-nft` / `nftables` "split-brain"
 firewall backend conflicts on a Linux host.
+
+## Simple explanation
+
+Modern Linux firewalls can be driven by one of two different engines
+under the hood, and it's possible for one tool to write rules into one
+engine while another tool inspects the other — so rules can exist that
+are completely invisible to whichever command you're checking with.
+This tool checks your firewall and warns you when that's happening, so
+a rule you think is active (or think is gone) actually matches reality.
+It only reads the current firewall state; it never adds, removes, or
+changes any rule.
 
 ## The problem
 
