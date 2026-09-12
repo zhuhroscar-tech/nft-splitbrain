@@ -45,6 +45,7 @@ STATUS_HIDDEN_LEGACY_RULES = "hidden_legacy_rules"
 STATUS_HIDDEN_NFT_RULES = "hidden_nft_rules"
 STATUS_NO_BACKEND_FOUND = "no_backend_found"
 STATUS_CANNOT_VERIFY_HIDDEN_RULES = "cannot_verify_hidden_rules_permission_denied"
+STATUS_UNDETERMINED_MODE = "undetermined_active_mode"
 
 STATUS_EXPLANATIONS = {
     STATUS_OK: (
@@ -86,6 +87,17 @@ STATUS_EXPLANATIONS = {
         "from 'no hidden rules were found': the host has NOT actually been "
         "verified clean -- re-run as root (e.g. with sudo) to get a real "
         "answer instead of a false 'ok'."
+    ),
+    STATUS_UNDETERMINED_MODE: (
+        "Neither 'iptables --version' nor 'update-alternatives --display' "
+        "could report which backend (nft or legacy) is actually active -- "
+        "'iptables --version' may not support self-reporting on this "
+        "distro, and iptables may not be managed by the alternatives "
+        "system at all. Without knowing the active backend this tool "
+        "cannot safely check the *other* backend for hidden rules, so the "
+        "host has NOT been verified clean. This is different from 'ok': "
+        "investigate manually (e.g. check which backend your firewall "
+        "management tool actually writes to)."
     ),
 }
 
@@ -264,6 +276,17 @@ def diagnose(
         )
 
     active_mode = reported_mode or alternatives_mode
+
+    if active_mode is None:
+        return SplitBrainReport(
+            status=STATUS_UNDETERMINED_MODE,
+            explanation=STATUS_EXPLANATIONS[STATUS_UNDETERMINED_MODE],
+            reported_mode=reported_mode,
+            alternatives_mode=alternatives_mode,
+            legacy_rule_lines=legacy_rule_lines,
+            nft_rule_lines=nft_rule_lines,
+            details=details,
+        )
 
     if active_mode == "nft" and legacy_rule_lines:
         details.append(f"{legacy_rule_lines} rule line(s) found via iptables-legacy-save.")

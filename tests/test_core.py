@@ -5,6 +5,7 @@ from nft_splitbrain.core import (
     STATUS_HIDDEN_NFT_RULES,
     STATUS_NO_BACKEND_FOUND,
     STATUS_OK,
+    STATUS_UNDETERMINED_MODE,
     count_ruleset_lines,
     diagnose,
     diagnose_host,
@@ -113,6 +114,30 @@ def test_diagnose_no_backend_found():
         legacy_rule_lines=None, nft_rule_lines=None,
     )
     assert report.status == STATUS_NO_BACKEND_FOUND
+
+
+def test_diagnose_undetermined_mode_does_not_silently_report_ok():
+    """Regression: when neither --version self-report nor
+    update-alternatives can determine the active backend, the tool must
+    not fall through to a false STATUS_OK even though hidden rule lines
+    were actually found in the legacy backend -- it genuinely can't tell
+    which backend is active, so it must say so rather than claim clean."""
+    report = diagnose(
+        iptables_available=True, nft_available=True,
+        reported_mode=None, alternatives_mode=None,
+        legacy_rule_lines=5, nft_rule_lines=None,
+    )
+    assert report.status == STATUS_UNDETERMINED_MODE
+    assert report.status != STATUS_OK
+
+
+def test_diagnose_undetermined_mode_even_with_no_rule_lines():
+    report = diagnose(
+        iptables_available=True, nft_available=False,
+        reported_mode=None, alternatives_mode=None,
+        legacy_rule_lines=None, nft_rule_lines=None,
+    )
+    assert report.status == STATUS_UNDETERMINED_MODE
 
 
 def test_diagnose_alternatives_mismatch():
