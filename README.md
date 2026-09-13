@@ -85,7 +85,7 @@ pip install nft-splitbrain
 Or run the standalone zipapp with no install:
 
 ```bash
-curl -LO https://github.com/zhuhroscar-tech/nft-splitbrain/releases/download/v0.1.0/nft-splitbrain.pyz
+curl -LO https://github.com/zhuhroscar-tech/nft-splitbrain/releases/latest/download/nft-splitbrain.pyz
 python3 nft-splitbrain.pyz --version
 ```
 
