@@ -3,6 +3,7 @@ from nft_splitbrain.core import (
     STATUS_CANNOT_VERIFY_HIDDEN_RULES,
     STATUS_HIDDEN_LEGACY_RULES,
     STATUS_HIDDEN_NFT_RULES,
+    STATUS_NFT_ONLY_NO_IPTABLES,
     STATUS_NO_BACKEND_FOUND,
     STATUS_OK,
     STATUS_UNDETERMINED_MODE,
@@ -114,6 +115,22 @@ def test_diagnose_no_backend_found():
         legacy_rule_lines=None, nft_rule_lines=None,
     )
     assert report.status == STATUS_NO_BACKEND_FOUND
+
+
+def test_diagnose_nft_only_host_is_clean_not_undetermined():
+    """Regression: a fully-migrated nftables-only host (no iptables binary
+    at all, only 'nft') has no second inspection command that could ever
+    disagree with nftables -- split-brain is not possible by definition.
+    Previously this fell through to STATUS_UNDETERMINED_MODE (exit code 2,
+    'has NOT been verified clean'), a false positive on an increasingly
+    common, genuinely clean configuration on modern minimal distros."""
+    report = diagnose(
+        iptables_available=False, nft_available=True,
+        reported_mode=None, alternatives_mode=None,
+        legacy_rule_lines=None, nft_rule_lines=None,
+    )
+    assert report.status == STATUS_NFT_ONLY_NO_IPTABLES
+    assert report.status != STATUS_UNDETERMINED_MODE
 
 
 def test_diagnose_undetermined_mode_does_not_silently_report_ok():

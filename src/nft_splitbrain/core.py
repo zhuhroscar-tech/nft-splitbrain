@@ -46,6 +46,7 @@ STATUS_HIDDEN_NFT_RULES = "hidden_nft_rules"
 STATUS_NO_BACKEND_FOUND = "no_backend_found"
 STATUS_CANNOT_VERIFY_HIDDEN_RULES = "cannot_verify_hidden_rules_permission_denied"
 STATUS_UNDETERMINED_MODE = "undetermined_active_mode"
+STATUS_NFT_ONLY_NO_IPTABLES = "nft_only_no_iptables"
 
 STATUS_EXPLANATIONS = {
     STATUS_OK: (
@@ -98,6 +99,14 @@ STATUS_EXPLANATIONS = {
         "host has NOT been verified clean. This is different from 'ok': "
         "investigate manually (e.g. check which backend your firewall "
         "management tool actually writes to)."
+    ),
+    STATUS_NFT_ONLY_NO_IPTABLES: (
+        "No 'iptables' binary (legacy or nft-compat) is installed on this "
+        "host at all -- only 'nft' is present. There is no alternatives "
+        "selection and no second inspection command that could disagree "
+        "with nftables, so split-brain between two backends is not "
+        "possible here by definition. This is a clean, fully-migrated "
+        "nftables-only host, not an undetermined state."
     ),
 }
 
@@ -254,6 +263,12 @@ def diagnose(
         return SplitBrainReport(
             status=STATUS_NO_BACKEND_FOUND,
             explanation=STATUS_EXPLANATIONS[STATUS_NO_BACKEND_FOUND],
+        )
+
+    if not iptables_available and nft_available:
+        return SplitBrainReport(
+            status=STATUS_NFT_ONLY_NO_IPTABLES,
+            explanation=STATUS_EXPLANATIONS[STATUS_NFT_ONLY_NO_IPTABLES],
         )
 
     if (
