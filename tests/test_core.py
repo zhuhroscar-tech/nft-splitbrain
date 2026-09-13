@@ -239,6 +239,62 @@ def test_diagnose_host_integration_permission_denied_surfaces_cannot_verify():
     assert report.legacy_rule_lines is None
 
 
+def test_diagnose_host_integration_legacy_active_checks_nft_ruleset():
+    """Mirror of test_diagnose_host_integration for the active_mode == "legacy"
+    branch: when iptables-legacy is the active backend, diagnose_host must
+    check `nft list ruleset` for hidden nft rules (core.py's
+    `if active_mode == "legacy" and nft_available:` branch). Before this
+    test, only the active_mode == "nft" mirror (checking iptables-legacy-save)
+    was ever exercised end-to-end -- a bug in this branch's wiring (wrong
+    variable, wrong command, wrong permission flag threaded through) would
+    have gone undetected."""
+
+    def fake_runner(cmd, timeout=15):
+        if cmd[0] == "which":
+            return "/usr/sbin/" + cmd[1] + "\n"
+        if cmd == ["iptables", "--version"]:
+            return "iptables v1.8.11 (legacy)\n"
+        if cmd == ["update-alternatives", "--display", "iptables"]:
+            return "  link currently points to /usr/sbin/iptables-legacy\n"
+        return ""
+
+    def fake_capture_runner(cmd, timeout=15):
+        if cmd == ["nft", "list", "ruleset"]:
+            return "# Warning: table ip filter is managed by iptables-nft\n", "", 0
+        return "", "", 0
+
+    report = diagnose_host(runner=fake_runner, capture_runner=fake_capture_runner)
+    assert report.status == STATUS_OK
+    assert report.reported_mode == "legacy"
+    assert report.nft_rule_lines == 0
+    assert report.legacy_rule_lines is None
+
+
+def test_diagnose_host_integration_legacy_active_hidden_nft_permission_denied():
+    """Same active_mode == "legacy" branch, but nft list ruleset fails with a
+    permission error -- must surface STATUS_CANNOT_VERIFY_HIDDEN_RULES with
+    nft_permission_denied wired through, not silently report OK/empty."""
+
+    def fake_runner(cmd, timeout=15):
+        if cmd[0] == "which":
+            return "/usr/sbin/" + cmd[1] + "\n"
+        if cmd == ["iptables", "--version"]:
+            return "iptables v1.8.11 (legacy)\n"
+        if cmd == ["update-alternatives", "--display", "iptables"]:
+            return "  link currently points to /usr/sbin/iptables-legacy\n"
+        return ""
+
+    def fake_capture_runner(cmd, timeout=15):
+        if cmd == ["nft", "list", "ruleset"]:
+            return "", "Operation not permitted\n", 1
+        return "", "", 0
+
+    report = diagnose_host(runner=fake_runner, capture_runner=fake_capture_runner)
+    assert report.status == STATUS_CANNOT_VERIFY_HIDDEN_RULES
+    assert report.permission_denied is True
+    assert report.nft_rule_lines is None
+
+
 def test_diagnose_permission_denied_not_reported_as_ok():
     report = diagnose(
         iptables_available=True, nft_available=True,
