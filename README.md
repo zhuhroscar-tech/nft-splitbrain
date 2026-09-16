@@ -1,158 +1,52 @@
 # nft-splitbrain
 
-[![CI](https://github.com/zhuhroscar-tech/nft-splitbrain/actions/workflows/ci.yml/badge.svg)](https://github.com/zhuhroscar-tech/nft-splitbrain/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/zhuhroscar-tech/nft-splitbrain?include_prereleases&label=release)](https://github.com/zhuhroscar-tech/nft-splitbrain/releases)
-![Linux](https://img.shields.io/badge/platform-Linux-111111?logo=linux)
+[![English](https://img.shields.io/badge/English-555555?style=flat)](README.md) [![简体中文](https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-555555?style=flat)](README.zh-CN.md)
 
-Detect `iptables-legacy` / `iptables-nft` / `nftables` "split-brain"
-firewall backend conflicts on a Linux host.
-
-## Simple explanation
-
-Modern Linux firewalls can be driven by one of two different engines
-under the hood, and it's possible for one tool to write rules into one
-engine while another tool inspects the other — so rules can exist that
-are completely invisible to whichever command you're checking with.
-This tool checks your firewall and warns you when that's happening, so
-a rule you think is active (or think is gone) actually matches reality.
-It only reads the current firewall state; it never adds, removes, or
-changes any rule.
-
-## The problem
-
-Since iptables 1.8, the `iptables` command can be backed by either the
-legacy kernel API (`iptables-legacy`) or a compatibility layer that
-actually writes nftables rules (`iptables-nft`). Multiple 2026 write-ups
-document the same "silent firewall war" failure mode (cr0x.net's *Debian
-13: iptables vs nftables conflict*, simplified.guide's backend-check
-guide, several Zenn/Qiita posts on the ufw/iptables/nftables
-relationship): some tool (Docker, a legacy script, a stale runbook, a
-manual override) writes rules through one backend while a different tool
-or operator inspects/manages rules through the other — and both "work"
-while silently producing disagreeing rulesets.
-
-The existing prior art doesn't cover this case: `iptables-wrappers`
-(Kubernetes) only solves backend selection for *building portable
-container images*, not diagnosing an already-running bare-metal host.
-Firewall linters like `firewallscope` analyze a pasted ruleset for
-security smells, not for backend divergence on the live host.
-
-## What this does
+Inspect a Linux host for mismatches between `iptables-legacy`, `iptables-nft` and nftables. It helps identify rules in a backend that your usual inspection command may not show, without changing the firewall.
 
 ![nft-splitbrain example output](docs/images/example-output.png)
 
-```
-$ nft-splitbrain
+[Demo video](docs/demo.mp4)
 
-Status: hidden_legacy_rules
-The active backend is nft, but 'iptables-legacy-save' shows rules still
-present in the legacy kernel API. These rules are invisible to 'nft list
-ruleset' and to plain 'iptables -S' but may still be loaded and affecting
-traffic -- likely leftovers from before a migration to nftables, or a
-tool that still calls iptables-legacy directly.
-  iptables --version reports: nft
-  update-alternatives selects: nft
-  iptables-legacy-save rule lines: 14
-  - 14 rule line(s) found via iptables-legacy-save.
-```
+## Checks
 
-Checks performed, in priority order:
+- Compare `iptables --version` with `update-alternatives --display iptables`, where available.
+- When nft is selected, inspect `iptables-legacy-save` for legacy content.
+- When legacy is selected, inspect `nft list ruleset` for nftables content.
+- Report recognized permission failures and an undetermined active mode instead of presenting those as a clean check.
 
-1. **Alternatives vs. self-report mismatch** — does `update-alternatives
-   --display iptables` agree with what `iptables --version` itself
-   claims? A mismatch means something bypassed the alternatives system.
-2. **Hidden legacy rules** — if the active backend is nft, are there
-   still rules loaded via `iptables-legacy-save` that `nft list ruleset`
-   and plain `iptables -S` can't see?
-3. **Hidden nft rules** — if the active backend is legacy, does `nft
-   list ruleset` already show rules that plain `iptables -S` can't see
-   (a partial migration, or firewalld/Docker managing its own nftables
-   tables)?
+## Install and run
 
-**Strictly read-only.** It never runs `update-alternatives --set`, never
-flushes or modifies any ruleset, and never calls `-restore`. It only
-reads command output.
-
-## Install
-
-Requires Python 3.9+ on Linux with `iptables`/`nft` present (meaningless
-on macOS/Windows, or a host with neither backend).
+Requires Python 3.9+ on Linux and the firewall tools relevant to your host (iptables 1.8+ and/or nftables). No Python runtime dependencies.
 
 ```bash
-pip install nft-splitbrain
-```
-
-Or run the standalone zipapp with no install:
-
-```bash
-curl -LO https://github.com/zhuhroscar-tech/nft-splitbrain/releases/latest/download/nft-splitbrain.pyz
-python3 nft-splitbrain.pyz --version
-```
-
-Verify the download against `SHA256SUMS.txt` in the same release before
-running it.
-
-## Usage
-
-```bash
-sudo nft-splitbrain          # human-readable diagnosis (root needed to read rulesets)
-sudo nft-splitbrain --json   # machine-readable output
-```
-
-Exit code `0` = consistent/clean (or genuinely no firewall backend
-present), `2` = a split-brain condition was detected.
-
-## If it finds a problem
-
-This tool only diagnoses; it never modifies anything.
-
-- `alternatives_version_mismatch` → run `update-alternatives --config
-  iptables` (and `ip6tables`) to see and fix the actual selection, or
-  find what bypassed it (a package postinst script, a manual symlink).
-- `hidden_legacy_rules` → decide on one backend. If migrating to
-  nftables, run `iptables-legacy-save` to inspect what's still there,
-  then intentionally migrate or remove those rules — don't just ignore
-  them, they are still live.
-- `hidden_nft_rules` → check which tool owns those nftables tables
-  (`nft list ruleset` shows table names — `firewalld`'s tables are named
-  distinctly, Docker's networking tables likewise) before touching
-  anything.
-
-## Uninstall
-
-```bash
-pip uninstall nft-splitbrain
-```
-No config files, no persistent state — a stateless read-only diagnostic.
-
-## Privacy / permissions
-
-- No network access, no telemetry.
-- Reads `iptables --version`, `update-alternatives --display`,
-  `iptables-legacy-save`, and `nft list ruleset` output. Reading the full
-  ruleset typically requires root, same as any other use of these
-  commands.
-- Writes nothing to disk.
-
-## Distro / architecture support
-
-Any Linux distro shipping iptables 1.8+ and/or nftables (the vast
-majority of current distros). Pure Python, no compiled dependencies.
-
-## Reproducible build / test
-
-```bash
-git clone https://github.com/zhuhroscar-tech/nft-splitbrain
+git clone https://github.com/zhuhroscar-tech/nft-splitbrain.git
 cd nft-splitbrain
-python3 -m pip install -e .[dev]
-python3 -m pytest -v
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[dev]"
 ```
 
-CI (`.github/workflows/ci.yml`) runs the suite on real Ubuntu runners
-across Python 3.9 and 3.12, installs real `iptables`/`nftables` packages,
-then smoke-tests the tool against actual backend state on the runner
-before building and verifying the wheel/sdist and a standalone `.pyz`.
+```bash
+nft-splitbrain
+sudo .venv/bin/nft-splitbrain --json
+```
 
-## License
+Reading rulesets generally requires root or `CAP_NET_ADMIN`; the explicit virtualenv path avoids relying on sudo's `PATH`. The program never elevates itself. Alternatively, download the `.pyz` from [releases](https://github.com/zhuhroscar-tech/nft-splitbrain/releases), verify the matching `SHA256SUMS.txt`, and run `python3 nft-splitbrain.pyz`.
 
-MIT — see [LICENSE](LICENSE).
+Exit `0` covers `ok`, `no_backend_found` and `nft_only_no_iptables`; exit `2` covers conflicts, unknown mode and recognized permission failures. **A zero exit code is not a firewall security audit.** Inspect the reported status.
+
+## Safety and limits
+
+No rule changes, flushes, restores, backend switching, network requests or telemetry. Findings are a snapshot of the current network namespace, not a traffic simulation or complete host/IPv6 audit. Ruleset line counts are a coarse presence heuristic, not a semantic rule count; some command failures may not match the permission detector.
+
+Before changing anything, identify the owning service (such as Docker or firewalld), inspect both backends and plan any migration. Do not blindly flush rules or switch backends on a remote host: you can lose access.
+
+## Development and removal
+
+```bash
+python -m pytest -q
+python -m pip uninstall nft-splitbrain
+```
+
+[Releases](https://github.com/zhuhroscar-tech/nft-splitbrain/releases) · [MIT license](LICENSE)
