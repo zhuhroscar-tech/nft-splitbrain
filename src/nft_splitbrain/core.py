@@ -83,11 +83,12 @@ STATUS_EXPLANATIONS = {
     ),
     STATUS_CANNOT_VERIFY_HIDDEN_RULES: (
         "This check needs to inspect the *other*, currently-unselected "
-        "backend for hidden rules, but that command failed with a "
-        "permission error (it needs root/CAP_NET_ADMIN). This is different "
+        "backend for hidden rules, but that command failed -- either a "
+        "permission error (needs root/CAP_NET_ADMIN) or an execution "
+        "failure (binary missing/timed out). This is different "
         "from 'no hidden rules were found': the host has NOT actually been "
-        "verified clean -- re-run as root (e.g. with sudo) to get a real "
-        "answer instead of a false 'ok'."
+        "verified clean -- investigate and re-run (e.g. with sudo) to get a "
+        "real answer instead of a false 'ok'."
     ),
     STATUS_UNDETERMINED_MODE: (
         "Neither 'iptables --version' nor 'update-alternatives --display' "
@@ -196,15 +197,19 @@ def count_ruleset_lines(cmd: list, runner=run_capture):
     """Count non-empty, non-comment lines in a `*-save`/`nft list ruleset`
     style dump -- a simple proxy for "are there rules here".
 
-    Returns (count, permission_denied). When the underlying command fails
+    Returns (count, could_not_verify). When the underlying command fails
     because of insufficient privilege (common: iptables-legacy-save and
-    `nft list ruleset` both require root/CAP_NET_ADMIN), returns
-    (None, True) instead of silently reporting 0 -- a 0 here previously
-    meant "genuinely empty" and "couldn't even check" identically, which
-    hides a real blind spot from the operator instead of reporting it.
+    `nft list ruleset` both require root/CAP_NET_ADMIN), OR because the
+    command could not even be executed at all (binary vanished between
+    the earlier `which` check and this call, or it timed out --
+    run_capture() reports that as returncode=None with empty stdout/
+    stderr), this returns (None, True) instead of silently reporting 0 --
+    a 0 here previously meant "genuinely empty" and "couldn't even check"
+    identically, which hides a real blind spot from the operator instead
+    of reporting it.
     """
     stdout, stderr, returncode = runner(cmd)
-    if _is_permission_denied(stderr, returncode):
+    if returncode is None or _is_permission_denied(stderr, returncode):
         return None, True
     count = 0
     for line in stdout.splitlines():
@@ -331,7 +336,7 @@ def diagnose(
         active_mode == "legacy" and nft_permission_denied
     ):
         checked = "iptables-legacy-save" if active_mode == "nft" else "nft list ruleset"
-        details.append(f"'{checked}' failed with a permission error -- run as root to verify.")
+        details.append(f"'{checked}' could not be verified (permission error or execution failure) -- investigate and re-run (e.g. as root) to verify.")
         return SplitBrainReport(
             status=STATUS_CANNOT_VERIFY_HIDDEN_RULES,
             explanation=STATUS_EXPLANATIONS[STATUS_CANNOT_VERIFY_HIDDEN_RULES],

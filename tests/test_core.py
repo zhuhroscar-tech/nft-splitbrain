@@ -108,6 +108,27 @@ def test_count_ruleset_lines_nonzero_exit_without_permission_text_not_flagged():
     assert permission_denied is False
 
 
+def test_count_ruleset_lines_execution_failure_not_silently_zero():
+    """Regression: run_capture() returns ("", "", None) when the underlying
+    command fails to even execute (binary vanished between the `which`
+    check and this call, or the subprocess timed out) -- see
+    test_core_run_helper.test_run_capture_missing_binary_returns_none_code
+    and the timeout test. Previously count_ruleset_lines only recognized
+    an execution failure when stderr matched a permission-denied phrase;
+    a returncode of None with empty stderr fell through to count=0,
+    permission_denied=False -- indistinguishable from 'the other backend
+    genuinely holds zero rules'. diagnose_host() would then report a false
+    STATUS_OK ('no hidden rules found') on a host it never actually
+    checked, instead of the honest 'cannot verify' state."""
+
+    def fake_runner(cmd, timeout=15):
+        return "", "", None
+
+    count, could_not_verify = count_ruleset_lines(["nft", "list", "ruleset"], runner=fake_runner)
+    assert count is None
+    assert could_not_verify is True
+
+
 def test_diagnose_no_backend_found():
     report = diagnose(
         iptables_available=False, nft_available=False,
