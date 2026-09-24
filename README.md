@@ -49,4 +49,4 @@ python -m pytest -q
 python -m pip uninstall nft-splitbrain
 ```
 
-[Releases](https://github.com/zhuhroscar-tech/nft-splitbrain/releases) · [MIT license](LICENSE)
+[Changelog](CHANGELOG.md) · [Releases](https://github.com/zhuhroscar-tech/nft-splitbrain/releases) · [MIT license](LICENSE)
