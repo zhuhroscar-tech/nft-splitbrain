@@ -56,6 +56,22 @@ def test_ci_runs_tests_builds_artifacts_and_smokes_zipapp():
     assert "actions/upload-artifact@v4" in workflow
 
 
+def test_ci_runs_for_release_tags():
+    workflow = _read(".github/workflows/ci.yml")
+    assert "tags: [\"v*\"]" in workflow
+
+
+def test_package_metadata_links_public_project_resources():
+    pyproject = _read("pyproject.toml")
+    for needle in (
+        "[project.urls]",
+        'Homepage = "https://github.com/zhuhroscar-tech/nft-splitbrain"',
+        'Issues = "https://github.com/zhuhroscar-tech/nft-splitbrain/issues"',
+        'Changelog = "https://github.com/zhuhroscar-tech/nft-splitbrain/blob/main/CHANGELOG.md"',
+    ):
+        assert needle in pyproject
+
+
 def test_codeql_workflow_covers_python():
     workflow = _read(".github/workflows/codeql.yml")
     assert "github/codeql-action/init" in workflow

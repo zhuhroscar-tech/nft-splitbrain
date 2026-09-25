@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nft-splitbrain"
-version = "0.1.9"
+version = "0.1.10"
 description = "Detect iptables-legacy/iptables-nft/nftables 'split-brain' firewall backend conflicts on a Linux host."
 readme = "README.md"
 license = "MIT"
@@ -15,6 +15,11 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: POSIX :: Linux",
 ]
+
+[project.urls]
+Homepage = "https://github.com/zhuhroscar-tech/nft-splitbrain"
+Issues = "https://github.com/zhuhroscar-tech/nft-splitbrain/issues"
+Changelog = "https://github.com/zhuhroscar-tech/nft-splitbrain/blob/main/CHANGELOG.md"
 
 [project.scripts]
 nft-splitbrain = "nft_splitbrain.cli:main"

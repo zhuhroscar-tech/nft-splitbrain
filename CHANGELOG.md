@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.1.10 - Release-tag CI and package links
+
+- Make CI run explicitly for `v*` release tags so release validation cannot drift away from main-branch validation.
+- Add package project URLs for the homepage, issues, and changelog.
+- Add repository-contract coverage for tag-triggered CI and project URL metadata.
+
 ## v0.1.9 - Repository completeness contracts
 
 - Add release-history documentation and link it from the English and Chinese READMEs.
